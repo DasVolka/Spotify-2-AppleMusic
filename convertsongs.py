@@ -160,7 +160,7 @@ def create_apple_music_playlist(session, playlist_name):
     data = {
         'attributes': {
             'name': playlist_name,
-            'description': 'This playlist was created via API using Spotify-2-AppleMusic (DasVolk fork)',
+            'description': 'This playlist was created via API using Spotify-2-AppleMusic (DasVolka fork)',
         }
     }
     # Test if playlist exists and create it if not
@@ -482,7 +482,7 @@ if __name__ == "__main__":
                         process_songs_library_only(os.path.join(argv[1], file))
 
 # Developed by @therealmarius on GitHub
-# Library song additions only provided by @DasVolk on GitHub
+# Library song additions only provided by @DasVolka on GitHub
 # Based on the work of @simonschellaert on GitHub
 # Based on the work of @nf1973 on GitHub
 # Github project page: https://github.com/therealmarius/Spotify-2-AppleMusic
