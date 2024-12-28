@@ -25,12 +25,142 @@ def get_connection_data(f,prompt):
     else:
             return input(prompt)
 
+def get_user_choice():
+    while True:
+        print("\nWhat would you like to do?")
+        print("1. Create playlist and add songs")
+        print("2. Add songs to library only")
+        choice = input("Enter your choice (1 or 2): ")
+        if choice in ['1', '2']:
+            return choice
+        print("Invalid choice. Please enter 1 or 2.")
+
+def add_song_to_library(session, song_id):
+    song_id = str(song_id)
+    equivalent_song_id = fetch_equivalent_song_id(session, song_id)
+    if equivalent_song_id != song_id:
+        print(f"{song_id} switched to equivalent -> {equivalent_song_id}")
+        song_id = equivalent_song_id
+    
+    try:
+        # URL with query parameters matching the observed request
+        url = f"https://amp-api.music.apple.com/v1/me/library"
+        params = {
+            "art[url]": "f",
+            "format[resources]": "map",
+            "ids[songs]": song_id,
+            "representation": "ids"
+        }
+        
+        # Making POST request with empty body as observed in the network request
+        request = session.post(
+            url,
+            params=params,
+            headers={
+                "accept": "*/*",
+                "origin": "https://music.apple.com",
+                "referer": "https://music.apple.com/",
+                "sec-fetch-dest": "empty",
+                "sec-fetch-mode": "cors",
+                "sec-fetch-site": "same-site"
+            }
+        )
+        
+        if request.status_code in [200, 201, 204]:
+            print(f"Song {song_id} added to library successfully!\n")
+            return "OK"
+        else:
+            print(f"Error {request.status_code} while adding song {song_id} to library: {request.reason}\n")
+            if request.status_code == 400:
+                print("Response content:", request.content.decode('utf-8'))
+            return "ERROR"
+    except Exception as e:
+        print(f"HOST ERROR while adding {song_id} to library: {str(e)}\n")
+        return "ERROR"
+
+def process_songs_library_only(file):
+        with requests.Session() as s:
+            s.headers.update({
+                "Authorization": f"{token}",
+                "media-user-token": f"{media_user_token}",
+                "Cookie": f"{cookies}".encode('utf-8'),
+                "Host": "amp-api.music.apple.com",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Referer": "https://music.apple.com/",
+                "Origin": "https://music.apple.com",
+                "Connection": "keep-alive",
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-site",
+            })
+
+            # Getting the file name for reporting
+            base_name = os.path.basename(file)
+            file_name = os.path.splitext(base_name)[0]
+									  
+        with open(str(file), encoding='utf-8') as file:
+            file = csv.reader(file)
+            header_row = next(file)
+            if header_row[1] != 'Track Name' or header_row[3] != 'Artist Name(s)' or header_row[5] != 'Album Name' or header_row[16] != 'ISRC':
+                print('\nThe CSV file is not in the correct format!\nPlease be sure to download the CSV file(s) only from https://watsonbox.github.io/exportify/.\n\n')
+                return
+
+            n = 0
+            isrc_based = 0
+            text_based = 0
+            converted = 0
+            failed = 0
+
+            for row in file:
+                n += 1
+													 
+                title, artist, album, album_artist, isrc = escape_apostrophes(
+                    row[1]), escape_apostrophes(row[3]), escape_apostrophes(row[5]), escape_apostrophes(row[7]), escape_apostrophes(row[16])
+                
+                track_id = match_isrc_to_itunes_id(s, album, album_artist, isrc)
+                if track_id:
+                    isrc_based += 1
+                else:
+                    print(f'No result found for {title} | {artist} | {album} with {isrc}. Trying text based search...')
+                    track_id = get_itunes_id(title, artist, album)
+                    if track_id:
+                        text_based += 1
+
+                if track_id:
+													   
+                    print(f'N°{n} | {title} | {artist} | {album} => {track_id}')
+																														 
+                    if delay >= 0.5:
+                        sleep(delay)
+                    else:
+                        sleep(0.5)
+                    
+                    result = add_song_to_library(s, track_id)
+                    if result == "OK": converted += 1
+                    elif result == "ERROR":
+                        with open(f'{file_name}_noresult.txt', 'a+', encoding='utf-8') as f:
+                            f.write(f'{title} | {artist} | {album} => UNABLE TO ADD TO LIBRARY\n')
+                            f.write('\n')
+                        failed += 1
+                elif result == "DUPLICATE": failed += 1
+            # If not, write it in a file
+                else:
+                    print(f'N°{n} | {title} | {artist} | {album} => NOT FOUND\n')
+                    with open(f'{file_name}_noresult.txt', 'a+', encoding='utf-8') as f:
+                        f.write(f'{title} | {artist} | {album} => NOT FOUND\n')
+                        f.write('\n')
+                    failed += 1
+                sleep(delay)
+
+            converted_percentage = round(converted / n * 100) if n > 0 else 100
+            print(f'\n - STAT REPORT -\nTotal Songs: {n}\nAdded to Library: {converted}\nFailed Songs: {failed}\nSuccess Rate: {converted_percentage}%\n\nConverted using ISRC: {isrc_based}\nConverted using text based search: {text_based}\n\n')
+
 def create_apple_music_playlist(session, playlist_name):
     url = "https://amp-api.music.apple.com/v1/me/library/playlists"
     data = {
         'attributes': {
             'name': playlist_name,
-            'description': 'A new playlist created via API using Spotify-2-AppleMusic',
+            'description': 'This playlist was created via API using Spotify-2-AppleMusic (DasVolk fork)',
         }
     }
     # Test if playlist exists and create it if not
@@ -189,7 +319,6 @@ def fetch_equivalent_song_id(session, song_id):
     except:
         return song_id
 
-
 # Function to add a song to a playlist
 def add_song_to_playlist(session, song_id, playlist_id, playlist_track_ids, playlist_name):
     song_id=str(song_id)
@@ -229,6 +358,7 @@ def get_playlist_track_ids(session, playlist_id):
     except:
         raise Exception(f"Error while getting playlist {playlist_id}!")
         return None
+    
 # Opening session
 def create_playlist_and_add_song(file):
     with requests.Session() as s:
@@ -319,20 +449,40 @@ def create_playlist_and_add_song(file):
     converted_percentage = round(converted / n * 100) if n > 0 else 100
     print(f'\n - STAT REPORT -\nPlaylist Songs: {n}\nConverted Songs: {converted}\nFailed Songs: {failed}\nPlaylist converted at {converted_percentage}%\n\nConverted using ISRC: {isrc_based}\nConverted using text based search: {text_based}\n\n')
 
-
 if __name__ == "__main__":
     if len(argv) > 1 and argv[1]:
+        # Checking if the command is correct
+        if not os.path.exists(argv[1]):
+            print('\nCommand usage:\npython3 convertsongs.py yourplaylist.csv\nMore info at https://github.com/therealmarius/Spotify-2-AppleMusic')
+            exit()
+            
+        # Get user choice
+        choice = get_user_choice()
+        
+        # Getting user's data for the connection
+        token = get_connection_data("token.dat", "\nPlease enter your Apple Music Authorization (Bearer token):\n")
+        media_user_token = get_connection_data("media_user_token.dat", "\nPlease enter your media user token:\n")
+        cookies = get_connection_data("cookies.dat", "\nPlease enter your cookies:\n")
+        country_code = get_connection_data("country_code.dat", "\nPlease enter the country code (e.g., FR, UK, US etc.): ")
+        
         if ".csv" in argv[1]:
-            create_playlist_and_add_song(argv[1])
+            if choice == '1':
+                create_playlist_and_add_song(argv[1])
+            else:
+                process_songs_library_only(argv[1])
         else:
             # get all csv files in the directory argv[1]
             files = [f for f in os.listdir(argv[1]) if os.path.isfile(os.path.join(argv[1], f))]
             # loop through all csv files
             for file in files:
                 if ".csv" in file:
-                    create_playlist_and_add_song(os.path.join(argv[1], file))
+                    if choice == '1':
+                        create_playlist_and_add_song(os.path.join(argv[1], file))
+                    else:
+                        process_songs_library_only(os.path.join(argv[1], file))
 
 # Developed by @therealmarius on GitHub
+# Library song additions only provided by @DasVolk on GitHub
 # Based on the work of @simonschellaert on GitHub
 # Based on the work of @nf1973 on GitHub
 # Github project page: https://github.com/therealmarius/Spotify-2-AppleMusic
